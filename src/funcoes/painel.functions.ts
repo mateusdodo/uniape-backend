@@ -1,6 +1,7 @@
 import { createServerFn } from "../lib/server-fn";
 import { z } from "zod";
 import { requireSupabaseAuth } from "../lib/server-fn";
+import { validarDocumento } from "./documento";
 
 /* ---------------------------------- Grupos --------------------------------- */
 
@@ -181,6 +182,7 @@ export type SolicitacaoItem = {
     preco_mensal: number;
     quartos: number;
     proprietario_id: string;
+    proprietario_verificado: boolean;
   } | null;
   solicitante: {
     id: string;
@@ -196,7 +198,7 @@ export type SolicitacaoItem = {
 };
 
 const SOLICITACAO_SELECT =
-  "id,status,mensagem,tipo_solicitante,created_at,grupo_id,imovel_id,imovel:imoveis!solicitacoes_imovel_id_fkey(id,titulo,bairro,preco_mensal,quartos,proprietario_id,contato_whatsapp,proprietario:profiles!imoveis_proprietario_id_fkey(telefone)),solicitante:profiles!solicitacoes_solicitante_id_fkey(id,nome,telefone,media_estrelas,total_avaliacoes),grupo:grupos!solicitacoes_grupo_id_fkey(id,nome_grupo)";
+  "id,status,mensagem,tipo_solicitante,created_at,grupo_id,imovel_id,imovel:imoveis!solicitacoes_imovel_id_fkey(id,titulo,bairro,preco_mensal,quartos,proprietario_id,contato_whatsapp,proprietario:profiles!imoveis_proprietario_id_fkey(telefone,verificado)),solicitante:profiles!solicitacoes_solicitante_id_fkey(id,nome,telefone,media_estrelas,total_avaliacoes),grupo:grupos!solicitacoes_grupo_id_fkey(id,nome_grupo)";
 
 export const listSolicitacoes = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
@@ -245,6 +247,7 @@ export const listSolicitacoes = createServerFn({ method: "GET" })
               preco_mensal: Number(r.imovel.preco_mensal),
               quartos: r.imovel.quartos,
               proprietario_id: r.imovel.proprietario_id,
+              proprietario_verificado: Boolean(r.imovel.proprietario?.verificado),
             }
           : null,
         solicitante: r.solicitante
@@ -359,7 +362,12 @@ export const cancelarSolicitacao = createServerFn({ method: "POST" })
 
 /* --------------------------------- Moradias --------------------------------- */
 
-export type Pessoa = { id: string; nome: string; telefone: string | null };
+export type Pessoa = {
+  id: string;
+  nome: string;
+  telefone: string | null;
+  verificado?: boolean;
+};
 
 export type MoradiaItem = {
   id: string;
@@ -401,7 +409,7 @@ export const listMinhasMoradias = createServerFn({ method: "GET" })
     const { data, error } = await context.supabase
       .from("moradias")
       .select(
-        "id,status,inicio,fim,whatsapp_url,encerramento_pedido_por,encerramento_pedido_em,avaliacao_janela_fim,proprietario_id,responsavel_id,imovel:imoveis!moradias_imovel_id_fkey(id,titulo,bairro,moradores_podem_recrutar,aceita_solicitacoes),proprietario:profiles!moradias_proprietario_id_fkey(id,nome,telefone)",
+        "id,status,inicio,fim,whatsapp_url,encerramento_pedido_por,encerramento_pedido_em,avaliacao_janela_fim,proprietario_id,responsavel_id,imovel:imoveis!moradias_imovel_id_fkey(id,titulo,bairro,moradores_podem_recrutar,aceita_solicitacoes),proprietario:profiles!moradias_proprietario_id_fkey(id,nome,telefone,verificado)",
       )
       .order("created_at", { ascending: false });
     if (error) throw error;
@@ -815,6 +823,14 @@ export const salvarDocumento = createServerFn({ method: "POST" })
   .inputValidator((data) => z.object({ caminho: z.string().min(3).max(300) }).parse(data))
   .handler(async ({ data, context }) => {
     if (!data.caminho.startsWith(`${context.userId}/`)) throw new Error("Arquivo inválido.");
+
+    const { supabaseAdmin } = await import("../config/supabase");
+    const { data: arquivo, error: downloadError } = await supabaseAdmin.storage
+      .from("documentos")
+      .download(data.caminho);
+    if (downloadError || !arquivo) throw new Error("Não foi possível conferir o documento enviado.");
+    await validarDocumento(arquivo, data.caminho);
+
     const { error } = await context.supabase
       .from("profiles")
       .update({ documento_url: data.caminho })
