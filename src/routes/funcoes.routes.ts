@@ -41,6 +41,7 @@ const rotas: Rota[] = [
   ["get", "/imoveis/meus", "listMeusImoveis"],
   ["get", "/imoveis/:id", "getImovel", (r) => ({ id: r.params.id })],
   ["post", "/imoveis", "createImovel", corpo],
+  ["delete", "/imoveis/:id", "excluirImovel", (r) => ({ imovel_id: r.params.id })],
   ["post", "/imoveis/:id/anuncio", "alternarAnuncio", comId("imovel_id")],
   ["post", "/imoveis/:id/moradores", "vincularMorador", comId("imovel_id")],
   ["get", "/usuarios", "listUsuarios", (r) => ({ q: r.query.q ?? "", tipo: r.query.tipo ?? "todos" })],
